@@ -54,8 +54,6 @@ if 'produtos' not in st.session_state:
     ])
 
 if 'fichas' not in st.session_state:
-    # Estrutura para armazenar as fichas técnicas salvas
-    # Cada ficha: {'id': 1, 'nome_receita': 'Bolo de Pote', 'itens': [...], 'custo_emb': 2.0, 'custo_outros': 1.0, 'lucro_tipo': '%', 'lucro_val': 100.0}
     st.session_state.fichas = []
 
 if 'proximo_id_prod' not in st.session_state:
@@ -122,7 +120,6 @@ if pagina == "📦 Gestão de Produtos":
         if st.session_state.produtos.empty:
             st.info("Nenhum produto cadastrado.")
         else:
-            # Exibir tabela resumida
             st.dataframe(st.session_state.produtos, use_container_width=True)
             
             st.markdown("---")
@@ -181,7 +178,6 @@ elif pagina == "📋 Fichas Técnicas":
             st.markdown("---")
             st.subheader("1. Inserir Ingredientes")
             
-            # Controle temporário de ingredientes da receita em construção
             if 'temp_ingredientes' not in st.session_state:
                 st.session_state.temp_ingredientes = []
 
@@ -195,7 +191,6 @@ elif pagina == "📋 Fichas Técnicas":
             qtd_receita = st.number_input(f"Quantidade usada na receita ({unid_str})", min_value=0.1, value=100.0, step=10.0)
             
             if st.button("➕ Adicionar Ingrediente à Receita"):
-                # Cálculo com 10% de desperdício
                 preco_com_desperdicio = prod_info['preco'] * 1.10
                 custo_unit_base = preco_com_desperdicio / prod_info['qtd_embalagem']
                 custo_item = custo_unit_base * qtd_receita
@@ -210,5 +205,74 @@ elif pagina == "📋 Fichas Técnicas":
                 })
                 st.success("Ingrediente adicionado à receita!")
 
-            # Mostrar tabela parcial dos ingredientes da receita
             if st.session_state.temp_ingredientes:
+                st.markdown("**Ingredientes adicionados até agora:**")
+                df_temp = pd.DataFrame(st.session_state.temp_ingredientes)
+                st.dataframe(df_temp[['nome', 'marca', 'qtd_usada', 'unidade', 'custo']].rename(columns={
+                    'nome': 'Ingrediente', 'marca': 'Marca', 'qtd_usada': 'Qtd', 'unidade': 'Unid', 'custo': 'Custo + 10% (R$)'
+                }), use_container_width=True)
+                
+                if st.button("Limpar Lista de Ingredientes"):
+                    st.session_state.temp_ingredientes = []
+                    st.rerun()
+
+            st.markdown("---")
+            st.subheader("2. Custos Extras e Precificação")
+            
+            col_ex1, col_ex2 = st.columns(2)
+            with col_ex1:
+                custo_emb = st.number_input("Custo de Embalagem (R$)", min_value=0.0, value=0.0, step=0.50)
+            with col_ex2:
+                custo_out = st.number_input("Outros Insumos / Extras (R$)", min_value=0.0, value=0.0, step=0.50)
+            
+            soma_ing = sum(i['custo'] for i in st.session_state.temp_ingredientes) if st.session_state.temp_ingredientes else 0.0
+            custo_total_receita = soma_ing + custo_emb + custo_out
+            
+            st.markdown("---")
+            tipo_lucro = st.radio("Definir Lucro por:", ["Porcentagem (%)", "Valor Fixo em Reais (R$)"])
+            
+            if tipo_lucro == "Porcentagem (%)":
+                margem_p = st.number_input("Margem de Lucro (%)", min_value=0.0, value=100.0, step=5.0)
+                lucro_r = custo_total_receita * (margem_p / 100)
+            else:
+                lucro_r = st.number_input("Valor de Lucro (R$)", min_value=0.0, value=10.0, step=1.0)
+                margem_p = (lucro_r / custo_total_receita * 100) if custo_total_receita > 0 else 0
+            
+            preco_venda_final = custo_total_receita + lucro_r
+            
+            st.info(f"💰 **Custo Total de Produção:** R$ {custo_total_receita:.2f} | 🏷️ **Preço de Venda Recomendado:** R$ {preco_venda_final:.2f}")
+            
+            if st.button("💾 Salvar Ficha Técnica Completa"):
+                if nome_receita.strip() == "":
+                    st.error("Dê um nome para a receita antes de salvar.")
+                elif not st.session_state.temp_ingredientes:
+                    st.error("Adicione pelo menos um ingrediente na ficha técnica.")
+                else:
+                    nova_ficha = {
+                        "id": st.session_state.proximo_id_ficha,
+                        "nome_receita": nome_receita,
+                        "itens": st.session_state.temp_ingredientes.copy(),
+                        "custo_emb": custo_emb,
+                        "custo_outros": custo_out,
+                        "custo_total": custo_total_receita,
+                        "lucro_reais": lucro_r,
+                        "margem_pct": margem_p,
+                        "preco_venda": preco_venda_final
+                    }
+                    st.session_state.fichas.append(nova_ficha)
+                    st.session_state.proximo_id_ficha += 1
+                    st.session_state.temp_ingredientes = []
+                    st.success(f"Ficha técnica '{nome_receita}' salva com sucesso!")
+
+    # ABA 2: Ver / Editar / Excluir Fichas Salvas
+    with tab_fich_ger:
+        st.subheader("Fichas Técnicas Salvas")
+        if not st.session_state.fichas:
+            st.info("Nenhuma ficha técnica criada ainda.")
+        else:
+            op_fichas = {f['id']: f['nome_receita'] for f in st.session_state.fichas}
+            ficha_selecionada_id = st.selectbox("Selecione a receita para visualizar ou excluir", options=list(op_fichas.keys()), format_func=lambda x: op_fichas[x])
+            
+            ficha_atual = next(f for f in st.session_state.fichas if f['id'] == ficha_selecionada_id)
+            
+            st.
